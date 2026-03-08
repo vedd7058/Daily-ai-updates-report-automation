@@ -31,7 +31,7 @@ TWILIO_AUTH_TOKEN   = os.environ["TWILIO_AUTH_TOKEN"]
 TWILIO_FROM         = os.environ["TWILIO_FROM"]         # e.g. whatsapp:+14155238886
 TWILIO_TO           = os.environ["TWILIO_TO"]           # e.g. whatsapp:+919876543210
 
-MODEL = "gemini-2.5-flash-preview-04-17"
+MODEL = "gemini-2.0-flash"
 
 # ── 360° Daily Intelligence Report prompt ─────────────────────────────────────
 DAILY_PROMPT = """

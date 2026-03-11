@@ -6,22 +6,10 @@ using Groq (Llama 3.3 70B), and delivers it via Gmail + WhatsApp (Twilio).
 
 Triggered daily at 7 PM IST by GitHub Actions.
 Both APIs are 100% free. No credit card needed.
-
-SECRETS NEEDED IN GITHUB:
-  GROQ_API_KEY        → https://console.groq.com
-  TAVILY_API_KEY      → https://app.tavily.com
-  GMAIL_SENDER        → your Gmail address
-  GMAIL_APP_PASSWORD  → https://myaccount.google.com/apppasswords
-  GMAIL_RECIPIENT     → where to receive the report
-  TWILIO_ACCOUNT_SID  → https://console.twilio.com
-  TWILIO_AUTH_TOKEN   → https://console.twilio.com
-  TWILIO_FROM         → whatsapp:+14155238886
-  TWILIO_TO           → whatsapp:+91XXXXXXXXXX
 """
 
 import os
 import smtplib
-import json
 import pytz
 from datetime import datetime
 from email.mime.text import MIMEText
@@ -29,6 +17,8 @@ from email.mime.multipart import MIMEMultipart
 from groq import Groq
 from tavily import TavilyClient
 from twilio.rest import Client as TwilioClient
+
+# ─── CONFIG ──────────────────────────────────────────────────────────────────
 
 GROQ_API_KEY        = os.environ["GROQ_API_KEY"]
 TAVILY_API_KEY      = os.environ["TAVILY_API_KEY"]
@@ -42,6 +32,21 @@ TWILIO_TO           = os.environ["TWILIO_TO"]
 
 GROQ_MODEL = "llama-3.3-70b-versatile"
 
+# ─── SECTION METADATA (icon, gradient per section) ───────────────────────────
+
+SECTION_META = {
+    "1": {"icon": "🚀", "color": "#FF6B6B", "bg": "#FFF5F5", "border": "#FF6B6B"},
+    "2": {"icon": "🤖", "color": "#4ECDC4", "bg": "#F0FFFE", "border": "#4ECDC4"},
+    "3": {"icon": "⚡", "color": "#45B7D1", "bg": "#F0F9FF", "border": "#45B7D1"},
+    "4": {"icon": "💼", "color": "#96CEB4", "bg": "#F0FFF4", "border": "#96CEB4"},
+    "5": {"icon": "🎨", "color": "#FFEAA7", "bg": "#FFFDF0", "border": "#F9CA24"},
+    "6": {"icon": "🧠", "color": "#DDA0DD", "bg": "#FDF0FF", "border": "#DDA0DD"},
+    "7": {"icon": "🔍", "color": "#F0A500", "bg": "#FFFBF0", "border": "#F0A500"},
+    "8": {"icon": "💡", "color": "#6C5CE7", "bg": "#F5F0FF", "border": "#6C5CE7"},
+}
+
+# ─── SEARCH QUERIES ───────────────────────────────────────────────────────────
+
 SEARCH_QUERIES = [
     "AI model releases breakthroughs today 2026",
     "open source LLM Hugging Face leaderboard latest 2026",
@@ -51,6 +56,8 @@ SEARCH_QUERIES = [
     "prompt engineering chain of thought techniques 2026",
     "new AI developer tools libraries trending 2026",
 ]
+
+# ─── REPORT PROMPT ───────────────────────────────────────────────────────────
 
 REPORT_PROMPT = """
 You are a world-class AI research analyst and strategy consultant.
@@ -95,8 +102,13 @@ One specific niche AI tool or library gaining traction among developers.
 Tone: Concise, technical but accessible, hyper-focused on utility.
 """
 
+# ─── HELPERS ─────────────────────────────────────────────────────────────────
+
 def now_ist():
     return datetime.now(pytz.timezone("Asia/Kolkata")).strftime("%Y-%m-%d %H:%M IST")
+
+def today_ist():
+    return datetime.now(pytz.timezone("Asia/Kolkata")).strftime("%A, %d %B %Y")
 
 def fetch_news():
     tavily = TavilyClient(api_key=TAVILY_API_KEY)
@@ -136,33 +148,195 @@ def generate_report(news_context, today):
     print(f"[{now_ist()}] Report generated ({len(report)} chars).")
     return report
 
-def markdown_to_html(text):
-    html_lines = []
-    in_ul = False
-    for line in text.splitlines():
+
+# ─── HTML EMAIL BUILDER ───────────────────────────────────────────────────────
+
+def build_html_email(report_text, today):
+    """
+    Parse the report sections and render each as a beautiful
+    colour-coded card with icon, title bar, and styled bullets.
+    """
+
+    # ── Split report into sections ──
+    sections = []
+    current_num  = None
+    current_title = ""
+    current_lines = []
+
+    for line in report_text.splitlines():
         if line.startswith("## "):
-            if in_ul: html_lines.append("</ul>"); in_ul = False
-            html_lines.append(f"<h2 style='color:#16213e;border-bottom:2px solid #0f3460;padding-bottom:4px;margin-top:28px'>{line[3:]}</h2>")
-        elif line.startswith("# "):
-            if in_ul: html_lines.append("</ul>"); in_ul = False
-            html_lines.append(f"<h1 style='color:#1a1a2e'>{line[2:]}</h1>")
-        elif line.startswith("### "):
-            if in_ul: html_lines.append("</ul>"); in_ul = False
-            html_lines.append(f"<h3 style='color:#0f3460'>{line[4:]}</h3>")
-        elif line.startswith("- ") or line.startswith("* "):
-            if not in_ul: html_lines.append("<ul>"); in_ul = True
-            item = line[2:].replace("**", "<strong>", 1).replace("**", "</strong>", 1)
-            html_lines.append(f"<li style='margin:5px 0'>{item}</li>")
-        elif line.strip() == "":
-            if in_ul: html_lines.append("</ul>"); in_ul = False
-            html_lines.append("<br>")
+            if current_num:
+                sections.append((current_num, current_title, "\n".join(current_lines).strip()))
+            heading = line[3:].strip()
+            # Extract leading number e.g. "1. The Big Three..."
+            parts = heading.split(".", 1)
+            current_num   = parts[0].strip() if len(parts) > 1 else "•"
+            current_title = parts[1].strip() if len(parts) > 1 else heading
+            current_lines = []
         else:
-            if in_ul: html_lines.append("</ul>"); in_ul = False
-            para = line.replace("**", "<strong>", 1).replace("**", "</strong>", 1)
-            html_lines.append(f"<p style='margin:6px 0'>{para}</p>")
-    if in_ul:
-        html_lines.append("</ul>")
-    return "\n".join(html_lines)
+            current_lines.append(line)
+
+    if current_num:
+        sections.append((current_num, current_title, "\n".join(current_lines).strip()))
+
+    # ── Render each section as a card ──
+    def render_lines(text, accent_color):
+        html = []
+        in_ul = False
+        for line in text.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                if in_ul:
+                    html.append("</ul>")
+                    in_ul = False
+                continue
+            if stripped.startswith("- ") or stripped.startswith("* "):
+                if not in_ul:
+                    html.append(f"<ul style='margin:8px 0 8px 0;padding-left:20px;'>")
+                    in_ul = True
+                item = stripped[2:].replace("**", "<strong>", 1).replace("**", "</strong>", 1)
+                html.append(
+                    f"<li style='margin:6px 0;color:#444;line-height:1.6;'>{item}</li>"
+                )
+            else:
+                if in_ul:
+                    html.append("</ul>")
+                    in_ul = False
+                para = stripped.replace("**", "<strong>", 1).replace("**", "</strong>", 1)
+                html.append(
+                    f"<p style='margin:8px 0;color:#333;line-height:1.7;'>{para}</p>"
+                )
+        if in_ul:
+            html.append("</ul>")
+        return "\n".join(html)
+
+    cards_html = ""
+    for num, title, body in sections:
+        meta = SECTION_META.get(num, {"icon": "📌", "color": "#888", "bg": "#F9F9F9", "border": "#ccc"})
+        icon   = meta["icon"]
+        color  = meta["color"]
+        bg     = meta["bg"]
+        border = meta["border"]
+        body_html = render_lines(body, color)
+
+        cards_html += f"""
+        <div style="margin-bottom:20px;border-radius:12px;overflow:hidden;
+                    box-shadow:0 2px 12px rgba(0,0,0,0.08);border:1px solid {border}22;">
+          <!-- Section header bar -->
+          <div style="background:{color};padding:12px 20px;display:flex;align-items:center;">
+            <span style="font-size:22px;margin-right:12px;">{icon}</span>
+            <div>
+              <span style="font-size:10px;color:rgba(255,255,255,0.8);
+                           text-transform:uppercase;letter-spacing:1px;font-weight:600;">
+                Section {num}
+              </span>
+              <div style="font-size:15px;font-weight:700;color:#fff;margin-top:1px;">
+                {title}
+              </div>
+            </div>
+          </div>
+          <!-- Section body -->
+          <div style="background:{bg};padding:16px 20px;">
+            {body_html}
+          </div>
+        </div>
+        """
+
+    # ── Full email shell ──
+    now = now_ist()
+    html = f"""
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#EAECF0;font-family:'Segoe UI',Arial,sans-serif;">
+
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#EAECF0;padding:32px 16px;">
+  <tr><td align="center">
+  <table width="640" cellpadding="0" cellspacing="0" style="max-width:640px;width:100%;">
+
+    <!-- ── HERO HEADER ── -->
+    <tr><td>
+      <div style="background:linear-gradient(135deg,#0F0C29,#302B63,#24243E);
+                  border-radius:16px 16px 0 0;padding:36px 32px 28px;text-align:center;">
+
+        <div style="font-size:42px;margin-bottom:8px;">🛸</div>
+
+        <h1 style="margin:0;font-size:26px;font-weight:800;color:#fff;letter-spacing:-0.5px;">
+          360° AI Daily Intelligence Report
+        </h1>
+
+        <p style="margin:10px 0 0;color:rgba(255,255,255,0.6);font-size:13px;">
+          {today} &nbsp;·&nbsp; {now}
+        </p>
+
+        <!-- Divider dots -->
+        <div style="margin-top:20px;">
+          <span style="display:inline-block;width:8px;height:8px;border-radius:50%;
+                       background:#FF6B6B;margin:0 3px;"></span>
+          <span style="display:inline-block;width:8px;height:8px;border-radius:50%;
+                       background:#4ECDC4;margin:0 3px;"></span>
+          <span style="display:inline-block;width:8px;height:8px;border-radius:50%;
+                       background:#6C5CE7;margin:0 3px;"></span>
+        </div>
+      </div>
+    </td></tr>
+
+    <!-- ── QUICK NAV PILLS ── -->
+    <tr><td>
+      <div style="background:#fff;padding:16px 20px;border-left:1px solid #e0e0e0;
+                  border-right:1px solid #e0e0e0;text-align:center;">
+        <p style="margin:0 0 10px;font-size:11px;color:#999;
+                  text-transform:uppercase;letter-spacing:1px;">Today's Sections</p>
+        <div>
+          {"".join([
+            f'<span style="display:inline-block;margin:3px;padding:4px 10px;'
+            f'border-radius:20px;font-size:11px;font-weight:600;'
+            f'background:{SECTION_META[k]["color"]}22;color:{SECTION_META[k]["color"]};'
+            f'border:1px solid {SECTION_META[k]["color"]}44;">'
+            f'{SECTION_META[k]["icon"]} {["Breakthroughs","LLM Frontier","Agents","Business","Multi-Modal","Prompting","Hidden Tool","Opportunities"][i]}'
+            f'</span>'
+            for i, k in enumerate(["1","2","3","4","5","6","7","8"])
+          ])}
+        </div>
+      </div>
+    </td></tr>
+
+    <!-- ── REPORT CARDS ── -->
+    <tr><td>
+      <div style="background:#EAECF0;padding:20px 12px;">
+        {cards_html}
+      </div>
+    </td></tr>
+
+    <!-- ── FOOTER ── -->
+    <tr><td>
+      <div style="background:linear-gradient(135deg,#0F0C29,#302B63);
+                  border-radius:0 0 16px 16px;padding:20px 32px;text-align:center;">
+        <p style="margin:0;font-size:11px;color:rgba(255,255,255,0.4);">
+          Powered by &nbsp;
+          <strong style="color:rgba(255,255,255,0.7);">Groq Llama 3.3 70B</strong>
+          &nbsp;·&nbsp;
+          <strong style="color:rgba(255,255,255,0.7);">Tavily Search</strong>
+          &nbsp;·&nbsp;
+          <strong style="color:rgba(255,255,255,0.7);">GitHub Actions</strong>
+        </p>
+        <p style="margin:6px 0 0;font-size:10px;color:rgba(255,255,255,0.25);">
+          Delivered automatically every day at 7 PM IST
+        </p>
+      </div>
+    </td></tr>
+
+  </table>
+  </td></tr>
+  </table>
+
+</body>
+</html>
+"""
+    return html
+
+
+# ─── DELIVERY FUNCTIONS ───────────────────────────────────────────────────────
 
 def make_whatsapp_summary(full_report):
     lines = [l.strip() for l in full_report.splitlines() if l.strip()]
@@ -190,38 +364,20 @@ def make_whatsapp_summary(full_report):
     ]
     return "\n".join(summary_lines)
 
-def send_gmail(subject, body):
+
+def send_gmail(subject, report_text, today):
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"]    = GMAIL_SENDER
     msg["To"]      = GMAIL_RECIPIENT
-    msg.attach(MIMEText(body, "plain"))
-    html_body = markdown_to_html(body)
-    full_html = f"""
-    <html>
-    <body style="font-family:Arial,sans-serif;max-width:820px;margin:auto;
-                 padding:24px;color:#222;background:#f4f4f4;">
-      <div style="background:#fff;border-radius:10px;padding:28px;
-                  box-shadow:0 2px 10px rgba(0,0,0,0.1);">
-        <div style="background:linear-gradient(135deg,#1a1a2e,#0f3460);
-                    color:white;padding:18px 22px;border-radius:8px;margin-bottom:28px;">
-          <h1 style="margin:0;font-size:22px;">📋 360° AI Daily Intelligence Report</h1>
-          <p style="margin:6px 0 0;opacity:0.75;font-size:13px;">{now_ist()}</p>
-        </div>
-        {html_body}
-        <hr style="margin-top:36px;border:none;border-top:1px solid #eee;">
-        <p style="font-size:11px;color:#aaa;text-align:center;margin-top:12px;">
-          Powered by Groq Llama 3.3 70B · Tavily Search · GitHub Actions
-        </p>
-      </div>
-    </body>
-    </html>
-    """
-    msg.attach(MIMEText(full_html, "html"))
+    msg.attach(MIMEText(report_text, "plain"))
+    html = build_html_email(report_text, today)
+    msg.attach(MIMEText(html, "html"))
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
         server.login(GMAIL_SENDER, GMAIL_APP_PASSWORD)
         server.sendmail(GMAIL_SENDER, GMAIL_RECIPIENT, msg.as_string())
     print(f"[{now_ist()}] Gmail sent to {GMAIL_RECIPIENT}")
+
 
 def send_whatsapp(message):
     client = TwilioClient(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
@@ -232,13 +388,16 @@ def send_whatsapp(message):
     )
     print(f"[{now_ist()}] WhatsApp sent. SID: {msg.sid}")
 
+
+# ─── MAIN ────────────────────────────────────────────────────────────────────
+
 def main():
     print(f"[{now_ist()}] Starting daily report job...")
-    today = datetime.now(pytz.timezone("Asia/Kolkata")).strftime("%A, %d %B %Y")
-    news_context = fetch_news()
-    report = generate_report(news_context, today)
+    today    = today_ist()
+    news_ctx = fetch_news()
+    report   = generate_report(news_ctx, today)
     date_str = datetime.now(pytz.timezone("Asia/Kolkata")).strftime("%d %b %Y")
-    send_gmail(f"360 AI Daily Report - {date_str}", report)
+    send_gmail(f"📋 360° AI Daily Report — {date_str}", report, today)
     summary = make_whatsapp_summary(report)
     send_whatsapp(summary)
     print(f"[{now_ist()}] All done!")

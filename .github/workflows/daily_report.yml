@@ -29,8 +29,10 @@ jobs:
           GMAIL_SENDER:       ${{ secrets.GMAIL_SENDER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           GMAIL_RECIPIENT:    ${{ secrets.GMAIL_RECIPIENT }}
+          GMAIL_RECIPIENT_2:  ${{ secrets.GMAIL_RECIPIENT_2 }}
           TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
           TWILIO_AUTH_TOKEN:  ${{ secrets.TWILIO_AUTH_TOKEN }}
           TWILIO_FROM:        ${{ secrets.TWILIO_FROM }}
           TWILIO_TO:          ${{ secrets.TWILIO_TO }}
+          TWILIO_TO_2:        ${{ secrets.TWILIO_TO_2 }}
         run: python daily_report.py
